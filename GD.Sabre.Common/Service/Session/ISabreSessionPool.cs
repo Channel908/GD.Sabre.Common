@@ -15,8 +15,8 @@ public interface ISabreSessionPool
     Task<SabreResult<SessionItem>> GetPooledSession();
     Task<SabreResult<SessionItem>> GetPooledSession(string PCC);
 
-    Task<bool> ReleaseSession(SessionItem session);
-    Task<bool> ReleaseSession(Security? Security);
+    Task<SabreResult<bool>> ReleaseSession(SessionItem session);
+    Task<SabreResult<bool>> ReleaseSession(Security? Security);
 
     Task<SabreResult<CreateSessionResponse>> CreateSession(string PCC);
     Task<SabreResult<CreateSessionResponse>> CreateSession();

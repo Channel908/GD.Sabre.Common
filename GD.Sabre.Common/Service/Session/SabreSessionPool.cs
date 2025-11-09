@@ -209,42 +209,53 @@ public class SabreSessionPool(
         await Task.Delay(millisecondsDelay);
     }
 
-    public async Task<bool> ReleaseSession(Security? Security)
+    public async Task<SabreResult<bool>> ReleaseSession(Security? Security)
     {
-        if (string.IsNullOrEmpty(Security?.BinarySecurityToken)) return false;
+        if (string.IsNullOrEmpty(Security?.BinarySecurityToken))
+            return SabreResult<bool>.Failure("session token is empty");
 
         var closeResult = await CloseSession(Security.BinarySecurityToken, _options?.Organization() ?? "CC61");
-        
-        return closeResult.Approved();
+
+        if (closeResult.Approved())
+        {
+            return SabreResult<bool>.Success(true);
+        }
+
+        return SabreResult<bool>.Failure("session close was not approved");
     }
 
-    public async Task<bool> ReleaseSession(SessionItem sessionItem)
+    public async Task<SabreResult<bool>> ReleaseSession(SessionItem sessionItem)
     {
         if (string.IsNullOrEmpty(sessionItem.SessionToken))
-            return false;
+            return SabreResult<bool>.Failure("session token is empty");
 
         if (sessionItem.Scope == SessionType.Pooled)
         {
             var clone = sessionItem.Clone();
             clone.Status = 0;
-            return _sessionPool.TryUpdate(sessionItem.SessionId, clone, sessionItem);
+            return SabreResult<bool>.Success(_sessionPool.TryUpdate(sessionItem.SessionId, clone, sessionItem));
         }
 
         if (sessionItem.Scope == SessionType.Transient)
         {
             var closeResult = await CloseSession(sessionItem.SessionToken, sessionItem.PseudoCityCode);
 
-            return closeResult.Approved();
+            if (closeResult.Approved())
+            {
+                return SabreResult<bool>.Success(true);
+            }
+
+            return SabreResult<bool>.Failure("session close was not approved");
         }
 
         if (sessionItem.Scope == SessionType.Limited)
         {
             var closeResult = await CloseSession(sessionItem!.SessionToken!, sessionItem.PseudoCityCode);
 
-            return _limitedPool.TryRemove(sessionItem!.SessionToken!, out _) && closeResult.Approved();
+            return SabreResult<bool>.Success(_limitedPool.TryRemove(sessionItem!.SessionToken!, out _) && closeResult.Approved());
         }
 
-        return false;
+        return SabreResult<bool>.Failure("unknown session pool type");
     }
 
     #endregion
