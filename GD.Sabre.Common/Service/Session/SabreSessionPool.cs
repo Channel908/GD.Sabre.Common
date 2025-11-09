@@ -1,9 +1,10 @@
-﻿using GD.Sabre.Common.Core.Models;
+﻿using GD.Sabre.Common.Core;
+using GD.Sabre.Common.Core.Factories;
+using GD.Sabre.Common.Core.Models;
 using GD.Sabre.Common.Core.Models.Options;
 using GD.Sabre.Common.Core.Reference;
-using GD.Sabre.Common.Core.Factories;
+using GD.Sabre.Common.Models;
 using Microsoft.Extensions.Options;
-using GD.Sabre.Common.Core;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 
@@ -38,54 +39,57 @@ public class SabreSessionPool(
 
 
     #region Transient Session
-    public async Task<SessionItem> GetTransientSession() => await GetTransientSession(_options?.Organization() ?? "CC61");
+    public async Task<SabreResult<SessionItem>> GetTransientSession() => await GetTransientSession(_options?.Organization() ?? "CC61");
 
-    public async Task<SessionItem> GetTransientSession(string PCC)
+    public async Task<SabreResult<SessionItem>> GetTransientSession(string PCC)
     {
-        var sabreSession = await CreateSession(PCC);
+        var sabreSessionResult = await CreateSession(PCC);
 
-        if(string.IsNullOrEmpty(sabreSession.Value.Security?.BinarySecurityToken))
-            throw new SabreException("GetTransientSession unable to create Sabre Sesion.");
+        if (!sabreSessionResult.IsSuccess)
+            return SabreResult<SessionItem>.Failure(sabreSessionResult.Error);
 
-        return new SessionItem(1, sabreSession.Value.Security.BinarySecurityToken, PCC, SessionType.Transient);
+        if(string.IsNullOrEmpty(sabreSessionResult.Response?.Security?.BinarySecurityToken))
+            return SabreResult<SessionItem>.Failure("GetTransientSession unable to create Sabre Sesion.");
+
+        return SabreResult<SessionItem>.Success(new SessionItem(1, sabreSessionResult.Response.Security.BinarySecurityToken, PCC, SessionType.Transient));
        
     }
     #endregion
 
     #region Limited Session
-    public async Task<SessionItem> GetLimitedSession() => await GetLimitedSession(_options?.Organization() ?? "CC61");   
-    public async Task<SessionItem> GetLimitedSession(string PCC)
+    public async Task<SabreResult<SessionItem>> GetLimitedSession() => await GetLimitedSession(_options?.Organization() ?? "CC61");   
+    public async Task<SabreResult<SessionItem>> GetLimitedSession(string PCC)
     {
 
         if(_limitedPool.Count(x=> x.Value == PCC) >= MaxAliveSessionsInPool)
-            throw new SabreException("GetLimitedSession Session Limit Reached.");
+            return SabreResult<SessionItem>.Failure("GetLimitedSession Session Limit Reached.");
 
-        var sabreSession = await CreateSession(PCC);
+        var sabreSessionResult  = await CreateSession(PCC);
 
-        if(!sabreSession.HasValue)
-            throw new SabreException("GetLimitedSession unabe to create Sabre Session.");
+        if (!sabreSessionResult.IsSuccess)
+            return SabreResult<SessionItem>.Failure(sabreSessionResult.Error);
 
-        if (string.IsNullOrEmpty(sabreSession.Value.Security?.BinarySecurityToken))
-            throw new SabreException("GetLimitedSession unabe to create Sabre Session.");
+        if (string.IsNullOrEmpty(sabreSessionResult.Response?.Security?.BinarySecurityToken))
+            return SabreResult<SessionItem>.Failure("GetLimitedSession unabe to create Sabre Session.");
 
 
-        SessionItem sessionItem =  new(1, sabreSession.Value.Security.BinarySecurityToken, PCC, SessionType.Limited);
+        SessionItem sessionItem =  new(1, sabreSessionResult.Response.Security.BinarySecurityToken, PCC, SessionType.Limited);
 
         if (!_limitedPool.TryAdd(sessionItem.SessionToken!, sessionItem.PseudoCityCode))
         {
             await CloseSession(sessionItem.SessionToken!, sessionItem.PseudoCityCode);
-            throw new SabreException("GetLimitedSession unable to add SessionItem.");
+            return SabreResult<SessionItem>.Failure("GetLimitedSession unable to add SessionItem.");
         }
 
-        return sessionItem;
+        return SabreResult<SessionItem>.Success(sessionItem);
     }
 
     #endregion
 
 
     #region Pooled Session
-    public async Task<SessionItem> GetPooledSession() => await GetPooledSession(_options?.Organization() ?? "CC61");
-    public async Task<SessionItem> GetPooledSession(string PCC)
+    public async Task<SabreResult<SessionItem>> GetPooledSession() => await GetPooledSession(_options?.Organization() ?? "CC61");
+    public async Task<SabreResult<SessionItem>> GetPooledSession(string PCC)
     {
         SessionItem? sessionItem = null;
 
@@ -100,11 +104,11 @@ public class SabreSessionPool(
                 continue;
             }
 
-            return sessionItem;
+            return SabreResult<SessionItem>.Success(sessionItem);
 
         }
 
-        throw new SabreException("GetPooledSession unable to find an available session item");
+        return SabreResult<SessionItem>.Failure("GetPooledSession unable to find an available session item");
     }
 
 
@@ -135,13 +139,15 @@ public class SabreSessionPool(
 
     private async Task<SessionItem?> AddSessionPool(string PCC)
     {
-        var newSession = await CreateSession(PCC);
-        if (!newSession.HasValue || !CheckToken(newSession?.Security))
-        {
-            return null;
-        }
+        var sabreSessionResult = await CreateSession(PCC);
 
-        string token = newSession!.Value!.Security!.BinarySecurityToken!;
+        if (!sabreSessionResult.IsSuccess)
+            return null;
+
+        if(!CheckToken(sabreSessionResult.Response?.Security))
+            return null;
+
+        string token = sabreSessionResult.Response!.Security!.BinarySecurityToken!;
 
         var sessionPoolItem = new SessionItem(1, token, PCC, SessionType.Pooled);
 
@@ -170,14 +176,16 @@ public class SabreSessionPool(
             return _sessionPool.TryUpdate(session.SessionId, clone, session);
         }
 
-        var newSession = await CreateSession(session.PseudoCityCode);
+        var sabreSessionResult = await CreateSession(session.PseudoCityCode);
 
-        if (!newSession.HasValue || !CheckToken(newSession?.Security))
-        {
+
+        if (!sabreSessionResult.IsSuccess)
             return false;
-        }
 
-        clone.SessionToken = newSession!.Value!.Security!.BinarySecurityToken!;
+        if (!CheckToken(sabreSessionResult.Response?.Security))
+            return false;
+
+        clone.SessionToken = sabreSessionResult!.Response!.Security!.BinarySecurityToken!;
         clone.Expires = DateTime.UtcNow;
         clone.LastAccess = DateTime.UtcNow;
 
@@ -243,9 +251,9 @@ public class SabreSessionPool(
 
 
     #region Sabre Sessions
-    public async Task<(SessionCreateRS? Response, Security? Security)?> CreateSession() => await CreateSession(_options?.Organization() ?? "CC61");
+    public async Task<SabreResult<CreateSessionResponse>> CreateSession() => await CreateSession(_options?.Organization() ?? "CC61");
 
-    public async Task<(SessionCreateRS? Response, Security? Security)?> CreateSession(string PCC)
+    public async Task<SabreResult<CreateSessionResponse>> CreateSession(string PCC)
     {
         try
         {
@@ -276,13 +284,16 @@ public class SabreSessionPool(
             var openSessionResponseBody = await _soapService.PostAsync<SessionCreateRS>();
             var openSessionResponseSecurity = _soapService.GetLastResultHeader<Security>("Security");
 
-            return (openSessionResponseBody, openSessionResponseSecurity);
+            return SabreResult<CreateSessionResponse>.Success(new CreateSessionResponse
+            {
+                Security = openSessionResponseSecurity,
+                SessionCreateRS = openSessionResponseBody
+            });
 
         }
         catch (Exception ex)
         {
-            //throw new Exception($"Partial submission failure: {ex.Message}");
-            return null;
+            return SabreResult<CreateSessionResponse>.Failure(ex);
         }
     }
 

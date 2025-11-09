@@ -18,6 +18,7 @@ public class OriginDestinations
     public string? OriginTimeZone { get; set; } = null;
     public string? DestinationTimeZone { get; set; } = null;
     public IEnumerable<FlightItinerary> Itineraries { get; set; } = [];
+    public int Count { get => Itineraries.Count(); }
 }
 
 
@@ -41,8 +42,8 @@ public class FlightSegment
     public string DestinationName { get; set; } = string.Empty;
     public string DestinationCode { get; set; } = string.Empty;
 
-    public DateTime DepartureDateTime { get; set; }
-    public DateTime ArrivalDateTime { get; set; }
+    public DateTime DepartsAt { get; set; }
+    public DateTime ArrivesAt { get; set; }
 
     public string FlightNumber { get; set; } = string.Empty;
 

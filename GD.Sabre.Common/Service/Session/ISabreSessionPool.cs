@@ -1,24 +1,25 @@
 ﻿using GD.Sabre.Common.Core.Models;
 using GD.Sabre.Common.Core.Reference;
+using GD.Sabre.Common.Models;
 
 namespace GD.Sabre.Common.Service.Session;
 
 public interface ISabreSessionPool
 {
 
-    Task<SessionItem> GetTransientSession();
-    Task<SessionItem> GetTransientSession(string PCC);
+    Task<SabreResult<SessionItem>> GetTransientSession();
+    Task<SabreResult<SessionItem>> GetTransientSession(string PCC);
 
-    Task<SessionItem> GetLimitedSession();
-    Task<SessionItem> GetLimitedSession(string PCC);
-    Task<SessionItem> GetPooledSession();
-    Task<SessionItem> GetPooledSession(string PCC);
+    Task<SabreResult<SessionItem>> GetLimitedSession();
+    Task<SabreResult<SessionItem>> GetLimitedSession(string PCC);
+    Task<SabreResult<SessionItem>> GetPooledSession();
+    Task<SabreResult<SessionItem>> GetPooledSession(string PCC);
 
     Task<bool> ReleaseSession(SessionItem session);
     Task<bool> ReleaseSession(Security? Security);
 
-    Task<(SessionCreateRS? Response, Security? Security)?> CreateSession(string PCC);
-    Task<(SessionCreateRS? Response, Security? Security)?> CreateSession();
+    Task<SabreResult<CreateSessionResponse>> CreateSession(string PCC);
+    Task<SabreResult<CreateSessionResponse>> CreateSession();
 
     Task<SessionCloseRS> CloseSession(string token, string PCC);
 
